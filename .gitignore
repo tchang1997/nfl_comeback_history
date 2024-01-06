@@ -1,0 +1,4 @@
+data/*
+notebooks/*
+
+!data/comebacks.csv
