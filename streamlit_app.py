@@ -50,9 +50,17 @@ def get_game_time_str(game_time):
     sec_remain = q_sec_remain % 60
     return f"Q{q} {min_remain}:{sec_remain:02}"
 
+def get_hovertemplate():
+    hover_lines = [
+        '%{customdata[3]} (Week %{customdata[4]})',
+        '%{customdata[7]} def. %{customdata[8]} %{customdata[9]}-%{customdata[10]}',
+        'Overcame %{y}-point deficit (%{customdata[5]}-%{customdata[6]}, Q%{customdata[1]} %{customdata[2]})',
+    ]
+    return '<br>'.join(hover_lines)
+
 df = get_comeback_data()
 
-include_postseason = st.checkbox("Include postseason games")
+include_postseason = st.checkbox("Include postseason games", value=True)
 deficit = st.slider("Hope level (minimum comeback size)", min_value=17, max_value=35)
 game_time = st.slider("Clutch level (game time)", min_value=0, max_value=3600)
 st.markdown(f"Game time: {get_game_time_str(game_time)}")
@@ -65,14 +73,30 @@ rate = len(deficit_df["game_id"].unique()) / N_SEASONS
 st.markdown(f"**Comeback level:** {get_comeback_level(rate)}")
 st.markdown(f"**{rate}** comebacks/season of this scale or greater")
 
-fig = px.scatter(
-    deficit_df,
+fig_dict = dict(
     x="deficit_end_seconds",
     y="max_future_deficit",
     color="max_future_deficit",
-    color_continuous_scale="reds",
-    custom_data=["game_id", "deficit_end_qtr", "deficit_end"],
+    custom_data=[
+        "game_id",
+        "deficit_end_qtr",
+        "deficit_end",
+        "game_date",
+        "week",
+        "deficit_posteam_score",
+        "deficit_defteam_score",
+        "winning_team",
+        "losing_team",
+        "winning_score",
+        "losing_score",
+    ],
 )
+fig = px.scatter(
+    deficit_df,
+    color_continuous_scale="reds",
+    **fig_dict,
+)
+
 
 fig.update_layout(
     title="NFL Comebacks by more than two scores (17+ pts.), 1999-2023",
@@ -84,7 +108,7 @@ fig.update_layout(
         ticktext=['Q1 15:00', 'Q1 10:00', 'Q1 5:00', 'Q2 15:00', 'Q2 10:00', 'Q2 5:00', 'Q3 15:00', 'Q3 10:00', 'Q3 5:00', 'Q4 15:00', 'Q4 10:00', 'Q4 5:00', 'End. Reg']
     )
 )
-fig.update_traces(hovertemplate='%{customdata[0]}<br>Overcame %{y}-point deficit (Q%{customdata[1]} %{customdata[2]})') #
+fig.update_traces(hovertemplate=get_hovertemplate())
 for i in range(900, 3601, 900):
     fig.add_vline(i, line_dash="dash", line_color="white")
 fig.update_xaxes(

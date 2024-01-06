@@ -4,8 +4,8 @@ import pandas as pd
 from tqdm.auto import tqdm
 tqdm.pandas()
 
-GAMEINFO_COLS = ["home_team", "away_team", "game_date", "week", "season_type", "drive", "qtr", "down", "ydstogo", "yrdln", "desc", "time", "game_seconds_remaining"]
-SCORE_COLS = ["total_home_score", "total_away_score", "home_score", "away_score"]
+GAMEINFO_COLS = ["home_team", "away_team", "game_date", "week", "season_type", "qtr", "desc", "time", "game_seconds_remaining"]
+SCORE_COLS = ["total_home_score", "total_away_score", "home_score", "away_score", "posteam_score", "defteam_score"]
 QUARTER_SECONDS = 15 * 60
 
 def get_best_comebacks(group):
@@ -17,6 +17,16 @@ def get_best_comebacks(group):
     worst_deficits.loc[:, "max_future_deficit"] = worst_deficits.loc[:, "max_future_deficit"].clip(0, None)
     worst_deficits.loc[:, "deficit_end"] = worst_deficits["time"].shift(-1)
     worst_deficits.loc[:, "deficit_end_qtr"] = worst_deficits["qtr"].shift(-1)
+    worst_deficits.loc[:, "deficit_posteam_score"] = worst_deficits["posteam_score"].shift(-1)
+    worst_deficits.loc[:, "deficit_defteam_score"] = worst_deficits["defteam_score"].shift(-1)
+
+    winning_team = "home_team" if group["home_score"].iloc[0] > group["away_score"].iloc[0] else "away_team"
+    losing_team = "away_team" if winning_team == "home_team" else "home_team"
+
+    worst_deficits.loc[:, "winning_team"] = worst_deficits.loc[:, winning_team]
+    worst_deficits.loc[:, "losing_team"] = worst_deficits.loc[:, losing_team]
+    worst_deficits.loc[:, "winning_score"] = worst_deficits.loc[:, winning_team.replace("team", "score")]
+    worst_deficits.loc[:, "losing_score"] = worst_deficits.loc[:, losing_team.replace("team", "score")]
 
     remain_seconds = worst_deficits.loc[:, "deficit_end"].apply(lambda x: None if pd.isnull(x) else int(x.split(":")[0]) * 60 + int(x.split(":")[1]))
     worst_deficits.loc[:, "deficit_end_seconds"] = (worst_deficits["deficit_end_qtr"] - 1) * 15 * 60 + 15 * 60 - remain_seconds
