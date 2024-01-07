@@ -9,8 +9,22 @@ QUARTER_SECONDS = 15 * 60
 GAME_SECONDS = 4 * QUARTER_SECONDS  # assume no OT for now
 MIN_YEAR = 1999
 MAX_YEAR = 2023
-SUMMARY_COLS = ["home_team", "away_team", "game_date", "week", "qtr", "desc", "time",
-    "total_home_score", "total_away_score", "home_score", "away_score"]
+SUMMARY_COLS = [
+    "game_id",
+    "home_team",
+    "away_team",
+    "game_date",
+    "week",
+    "qtr",
+    "desc",
+    "time",
+    "total_home_score",
+    "total_away_score",
+    "home_score",
+    "away_score",
+]
+DEFICIT_MAX_COLOR = 35
+DEFICIT_MIN_COLOR = -DEFICIT_MAX_COLOR
 
 @st.cache_data
 def get_comeback_data():
@@ -20,6 +34,17 @@ def get_comeback_data():
 @st.cache_data
 def get_scoring_summaries():
     return pd.read_csv("./data/scoring_summaries.csv")
+
+@st.cache_data
+def get_game_id_mapping(series):
+    # game_ids are formatted {year}_{week}_{home_team}_{away_team}
+    def reformat_id(row):
+        year, week, home, away = row.split("_")
+        return f"{year}, Week {week}, {home} vs. {away}"
+
+    unique_games = series.drop_duplicates()
+    game_info_str = unique_games.apply(reformat_id)
+    return pd.Series(game_info_str.values, index=unique_games.values).to_dict(), pd.Series(unique_games.values, index=game_info_str.values).to_dict()
 
 st.title("Historical Comebacks in the NFL, 1999-2023")
 st.markdown("""
@@ -83,11 +108,17 @@ def get_color(key):
 
 @st.cache_data
 def create_summary(df):
+    first = df.iloc[0]
+    winning_score = max(first["home_score"], first["away_score"])
+    losing_score = min(first["home_score"], first["away_score"])
+    winning_team = "total_home_score" if df["total_home_score"].iloc[-1] == winning_score else "total_away_score"
+    losing_team = "total_away_score" if df["total_home_score"].iloc[-1] == winning_score else "total_home_score"
     return pd.DataFrame({
-        "time": "Q" + df["qtr"].astype(str) + " " + df["time"],
-        "desc": df["desc"],
+        "Time": "Q" + df["qtr"].astype(str) + " " + df["time"],
+        "Play description": df["desc"].str.wrap(30),
         df["home_team"].iloc[0] : df["total_home_score"],
-        df["away_team"].iloc[0]: df["total_away_score"]
+        df["away_team"].iloc[0]: df["total_away_score"],
+        "Winner deficit": df[losing_team] - df[winning_team]
     })
 
 @st.cache_data
@@ -98,6 +129,7 @@ def get_summary_header(df):
     winning_team = df["home_team"] if winning_score == df["home_score"] else df["away_team"]
     losing_team = df["away_team"] if winning_team == df["home_team"] else df["home_team"]
     return f"""
+    #### Scoring summary
     **{df["game_date"]} (Week {df["week"]}): {winning_team} def. {losing_team} {winning_score}-{losing_score}**
     """
 
@@ -177,29 +209,40 @@ fig.update_xaxes(
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.markdown("""### Comeback summarizer
+st.markdown("""### Comeback scoring summaries
 
-*"What!? How'd [insert team name] come back?"*
+*"What!? How'd [insert team name] come back?"* If that's how you reacted, check out the searchable drop-down below to find scoring summaries for each of the comebacks.
 
-If the above was your reaction, check out the table below to find scoring summaries for each of the comebacks!
+To facilitate search, game information is indexed in the following format:
+
+`"[YEAR], Week [WEEK], [HOME_TEAM] vs. [AWAY_TEAM]".`
 """)
-
+game_mappings, reverse_map = get_game_id_mapping(df.loc[df["max_future_deficit"] >= MIN_POINTS, "game_id"])
 game_id = st.selectbox(
     "Comebacks",
-    deficit_df["game_id"].unique(),
+    game_mappings.values(),
     index=None,
     placeholder="Select a game...",
 )
-scoring_slice = scoring_df.loc[scoring_df["game_id"] == game_id, SUMMARY_COLS]
+scoring_slice = scoring_df.loc[scoring_df["game_id"] == reverse_map.get(game_id, False), SUMMARY_COLS]
 
 if game_id is not None:
     st.markdown(get_summary_header(scoring_slice))
-    st.table(create_summary(scoring_slice))
+    st.table(
+        create_summary(scoring_slice).reset_index(drop=True) \
+        .style.background_gradient(
+            axis=1,
+            vmin=DEFICIT_MIN_COLOR,
+            vmax=DEFICIT_MAX_COLOR,
+            cmap="RdYlGn_r",
+            subset="Winner deficit"
+        )
+    )
 
 st.markdown("""
 Please direct comments, feedback, or requests to `ctrenton 'at' umich 'dot' edu`.
 
 **Data availability statement:** All data is publicly available via [nflverse](https://github.com/nflverse) on GitHub.
 
-*Data last updated 1/6/2024.*
+*Data last updated 1/7/2024.*
 """)
