@@ -4,10 +4,22 @@ import streamlit as st
 
 N_SEASONS = 25
 N_GAMES = 16 * 17 + 13
+MIN_POINTS = 17
+QUARTER_SECONDS = 15 * 60
+GAME_SECONDS = 4 * QUARTER_SECONDS  # assume no OT for now
+MIN_YEAR = 1999
+MAX_YEAR = 2023
+SUMMARY_COLS = ["home_team", "away_team", "game_date", "week", "qtr", "desc", "time",
+    "total_home_score", "total_away_score", "home_score", "away_score"]
 
 @st.cache_data
 def get_comeback_data():
     return pd.read_csv("./data/comebacks.csv")
+
+
+@st.cache_data
+def get_scoring_summaries():
+    return pd.read_csv("./data/scoring_summaries.csv")
 
 st.title("Historical Comebacks in the NFL, 1999-2023")
 st.markdown("""
@@ -43,40 +55,86 @@ def get_comeback_level(rate):
         return "UNPRECEDENTED!"
 
 def get_game_time_str(game_time):
-    if game_time >= 3600: return "End Reg."
-    q = game_time // 900 + 1
-    q_sec_remain = 900 - game_time % 900
+    if game_time >= GAME_SECONDS:
+        return "End Reg."
+    q = game_time // QUARTER_SECONDS + 1
+    q_sec_remain = QUARTER_SECONDS - game_time % QUARTER_SECONDS
     min_remain = q_sec_remain // 60
     sec_remain = q_sec_remain % 60
     return f"Q{q} {min_remain}:{sec_remain:02}"
 
+@st.cache_data
 def get_hovertemplate():
     hover_lines = [
         '%{customdata[3]} (Week %{customdata[4]})',
         '%{customdata[7]} def. %{customdata[8]} %{customdata[9]}-%{customdata[10]}',
         'Overcame %{y}-point deficit (%{customdata[5]}-%{customdata[6]}, Q%{customdata[1]} %{customdata[2]})',
+        'Win probability: %{customdata[11]:.2%}'
     ]
     return '<br>'.join(hover_lines)
 
-df = get_comeback_data()
+@st.cache_data
+def get_color(key):
+    colorby_dict = {
+        "Deficit": {"color": "max_future_deficit", "color_continuous_scale": "reds"},
+        "Win probability": {"color": "score_team_wp_at_deficit", "color_continuous_scale": "blues"}
+    }
+    return colorby_dict[key]
 
+@st.cache_data
+def create_summary(df):
+    return pd.DataFrame({
+        "time": "Q" + df["qtr"].astype(str) + " " + df["time"],
+        "desc": df["desc"],
+        df["home_team"].iloc[0] : df["total_home_score"],
+        df["away_team"].iloc[0]: df["total_away_score"]
+    })
+
+@st.cache_data
+def get_summary_header(df):
+    df = df.iloc[0]
+    winning_score = max(df["home_score"], df["away_score"])
+    losing_score = min(df["home_score"], df["away_score"])
+    winning_team = df["home_team"] if winning_score == df["home_score"] else df["away_team"]
+    losing_team = df["away_team"] if winning_team == df["home_team"] else df["home_team"]
+    return f"""
+    **{df["game_date"]} (Week {df["week"]}): {winning_team} def. {losing_team} {winning_score}-{losing_score}**
+    """
+
+df = get_comeback_data()
+scoring_df = get_scoring_summaries()
+
+st.divider()
+st.markdown("### Plot settings")
 include_postseason = st.checkbox("Include postseason games", value=True)
-deficit = st.slider("Hope level (minimum comeback size)", min_value=17, max_value=35)
-game_time = st.slider("Clutch level (game time)", min_value=0, max_value=3600)
-st.markdown(f"Game time: {get_game_time_str(game_time)}")
+deficit = st.slider("Hope level (minimum comeback size)", min_value=MIN_POINTS, max_value=35)
+game_time = st.slider("Clutch level (game time, seconds elapsed)", min_value=0, max_value=GAME_SECONDS)
+st.markdown(f"Game clock: **{get_game_time_str(game_time)}**")
 
 deficit_df = df[(df["max_future_deficit"] >= deficit) & (df["deficit_end_seconds"] >= game_time)]
 if not include_postseason:
     deficit_df = deficit_df[deficit_df["season_type"] == "REG"]
 
-rate = len(deficit_df["game_id"].unique()) / N_SEASONS
-st.markdown(f"**Comeback level:** {get_comeback_level(rate)}")
-st.markdown(f"**{rate}** comebacks/season of this scale or greater")
+n_games = len(deficit_df["game_id"].unique())
+rate = n_games / N_SEASONS
+st.markdown(f"**Comeback level:** {get_comeback_level(rate)} (**{rate}** comebacks/season)")
+
+with st.expander("Advanced filters"):
+    min_year, max_year = st.slider("Seasons", min_value=MIN_YEAR, max_value=MAX_YEAR, value=(MIN_YEAR, MAX_YEAR))
+    max_wp = st.slider("Maximum win probability", min_value=0., max_value=0.3, value=0.3)
+    deficit_df = deficit_df[(deficit_df["year"] >= min_year) & (deficit_df["year"] <= max_year) & (deficit_df["score_team_wp_at_deficit"] <= max_wp)]
+    post_n_games = len(deficit_df["game_id"].unique())
+    st.markdown(f"{post_n_games}/{n_games} games under consideration")
+
+st.divider()
+colorby = st.radio(
+    "Plotting mode",
+    ["Deficit", "Win probability"],
+)
 
 fig_dict = dict(
     x="deficit_end_seconds",
     y="max_future_deficit",
-    color="max_future_deficit",
     custom_data=[
         "game_id",
         "deficit_end_qtr",
@@ -89,38 +147,59 @@ fig_dict = dict(
         "losing_team",
         "winning_score",
         "losing_score",
+        "score_team_wp_at_deficit",
     ],
 )
+
 fig = px.scatter(
     deficit_df,
-    color_continuous_scale="reds",
+    **get_color(colorby),
     **fig_dict,
 )
 
-
 fig.update_layout(
-    title="NFL Comebacks by more than two scores (17+ pts.), 1999-2023",
+    title=f"NFL Comebacks by more than two scores ({MIN_POINTS}+ pts.), 1999-2023",
     xaxis_title="Game time",
     yaxis_title="Winning team maximum deficit",
     xaxis=dict(
         tickmode='array',
-        tickvals=list(range(0, 3601, 300)),
+        tickvals=list(range(0, GAME_SECONDS + 1, QUARTER_SECONDS // 3)),
         ticktext=['Q1 15:00', 'Q1 10:00', 'Q1 5:00', 'Q2 15:00', 'Q2 10:00', 'Q2 5:00', 'Q3 15:00', 'Q3 10:00', 'Q3 5:00', 'Q4 15:00', 'Q4 10:00', 'Q4 5:00', 'End. Reg']
     )
 )
 fig.update_traces(hovertemplate=get_hovertemplate())
-for i in range(900, 3601, 900):
+for i in range(QUARTER_SECONDS, GAME_SECONDS + 1, QUARTER_SECONDS):
     fig.add_vline(i, line_dash="dash", line_color="white")
 fig.update_xaxes(
-    range=(game_time, 15 * 60 * 4 + 10 * 60),
+    range=(game_time, GAME_SECONDS),
     constrain='domain'
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("""### Comeback summarizer
+
+*"What!? How'd [insert team name] come back?"*
+
+If the above was your reaction, check out the table below to find scoring summaries for each of the comebacks!
+""")
+
+game_id = st.selectbox(
+    "Comebacks",
+    deficit_df["game_id"].unique(),
+    index=None,
+    placeholder="Select a game...",
+)
+scoring_slice = scoring_df.loc[scoring_df["game_id"] == game_id, SUMMARY_COLS]
+
+if game_id is not None:
+    st.markdown(get_summary_header(scoring_slice))
+    st.table(create_summary(scoring_slice))
+
 st.markdown("""
 Please direct comments, feedback, or requests to `ctrenton 'at' umich 'dot' edu`.
 
 **Data availability statement:** All data is publicly available via [nflverse](https://github.com/nflverse) on GitHub.
 
-*Data last updated 1/5/2024.*
+*Data last updated 1/6/2024.*
 """)

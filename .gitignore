@@ -2,3 +2,4 @@ data/*
 notebooks/*
 
 !data/comebacks.csv
+!data/scoring_summaries.csv
