@@ -35,7 +35,7 @@ def get_best_comebacks(group):
     worst_deficits.loc[:, DEFICIT_COLS] = worst_deficits.loc[:, DEFICIT_SOURCE_COLS].shift(-1).values
     remain_seconds = worst_deficits.loc[:, "deficit_end"].apply(lambda x: None if pd.isnull(x) else int(x.split(":")[0]) * 60 + int(x.split(":")[1]))
     worst_deficits.loc[:, "deficit_end_seconds"] = worst_deficits["deficit_end_qtr"] * QUARTER_SECONDS - remain_seconds
-    worst_deficits.loc[:, "score_team_at_deficit"] = worst_deficits["posteam"].where(worst_deficits["posteam_score_post"] - worst_deficits["posteam_score"] > 0, worst_deficits["defteam"]) # team that reduced the worst deficit so far
+    worst_deficits.loc[:, "score_team_at_deficit"] = worst_deficits["posteam"].where(worst_deficits["posteam_score_post"] - worst_deficits["posteam_score"] > 0, worst_deficits["defteam"])  # team that reduced the worst deficit so far
     worst_deficits.loc[:, "score_team_wp_at_deficit"] = worst_deficits["wp"].where(worst_deficits["score_team_at_deficit"] == worst_deficits["posteam"], worst_deficits["def_wp"]).shift(-1)  # pre-scoring WP at worst deficit
 
     # get winner info (for tooltip)

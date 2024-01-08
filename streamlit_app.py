@@ -116,7 +116,7 @@ def create_summary(df):
     return pd.DataFrame({
         "Time": "Q" + df["qtr"].astype(str) + " " + df["time"],
         "Play description": df["desc"].str.wrap(30),
-        df["home_team"].iloc[0] : df["total_home_score"],
+        df["home_team"].iloc[0]: df["total_home_score"],
         df["away_team"].iloc[0]: df["total_away_score"],
         "Winner deficit": df[losing_team] - df[winning_team]
     })
@@ -197,7 +197,8 @@ fig.update_layout(
         tickmode='array',
         tickvals=list(range(0, GAME_SECONDS + 1, QUARTER_SECONDS // 3)),
         ticktext=['Q1 15:00', 'Q1 10:00', 'Q1 5:00', 'Q2 15:00', 'Q2 10:00', 'Q2 5:00', 'Q3 15:00', 'Q3 10:00', 'Q3 5:00', 'Q4 15:00', 'Q4 10:00', 'Q4 5:00', 'End. Reg']
-    )
+    ),
+    coloraxis_colorbar=dict(title=colorby),
 )
 fig.update_traces(hovertemplate=get_hovertemplate())
 for i in range(QUARTER_SECONDS, GAME_SECONDS + 1, QUARTER_SECONDS):
@@ -229,7 +230,7 @@ scoring_slice = scoring_df.loc[scoring_df["game_id"] == reverse_map.get(game_id,
 if game_id is not None:
     st.markdown(get_summary_header(scoring_slice))
     st.table(
-        create_summary(scoring_slice).reset_index(drop=True) \
+        create_summary(scoring_slice).reset_index(drop=True)
         .style.background_gradient(
             axis=1,
             vmin=DEFICIT_MIN_COLOR,
