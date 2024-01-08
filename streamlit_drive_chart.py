@@ -21,7 +21,7 @@ def get_game_df(week_df, game_id):
 
 @st.cache_data
 def get_season_df(season):
-    df = pd.read_csv(f"https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.csv.gz")
+    df = pd.read_csv(f"https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_{season}.csv.gz", low_memory=False)
     return df
 
 def get_play_starts(drive_df, drive_index, home_team):
@@ -31,16 +31,14 @@ def get_play_starts(drive_df, drive_index, home_team):
         y=drive_index,
         mode="markers+text",
         marker=dict(color="orange"),
-        hoverinfo="skip",
+        hoverinfo="text",
+        hovertext=get_tooltip_text(drive_df),
         text=get_down_info(drive_df),
         textposition="bottom center",
         textfont_size=14,
     )
 
 def get_play_ends(drive_df, drive_index, home_team):
-    penalty_idx = drive_df["penalty"].fillna(0).astype(int).tolist()
-    touchdown_idx = drive_df["touchdown"].fillna(0).astype(int).tolist()
-
     play_direction_sign = 2 * (drive_df["posteam_type"] == "home") - 1
     play_end_series = drive_df["yrdln"].apply(yrdln_to_numeric, home=home_team) + play_direction_sign * drive_df["yards_gained"] + OFFSET
     play_text = drive_df["play_type"].map(PLAY_DICT).tolist()
@@ -58,6 +56,29 @@ def get_play_ends(drive_df, drive_index, home_team):
         textfont_size=20,
     )
     return play_end_series, play_ends
+
+def get_penalty_arrows(drive_df, play_start_series, play_end_series, drive_index):
+    drive_index = np.array(drive_index)
+    play_direction_sign = 2 * (drive_df["posteam_type"].iloc[0] == "home") - 1
+    penalty_mask = (drive_df["penalty"] == 1)
+    penalty_idx = drive_index[penalty_mask]
+    end_penalty = play_end_series.loc[penalty_mask]
+    arrows = [go.layout.Annotation(dict(
+        x=end_penalty.iloc[i] - play_direction_sign * drive_df.loc[penalty_mask, "penalty_yards"].iloc[i],
+        y=penalty_idx[i],
+        xref="x", yref="y",
+        text="",
+        showarrow=True,
+        axref="x",
+        ayref="y",
+        ax=end_penalty.iloc[i],
+        ay=penalty_idx[i],
+        arrowhead=3,
+        arrowwidth=1.5,
+        arrowcolor='yellow',)
+    ) for i in range(len(penalty_idx))]
+    return arrows
+
 
 def get_lines(drive_df, play_start_series, play_end_series, drive_index):
     return [
@@ -80,7 +101,7 @@ def get_lines(drive_df, play_start_series, play_end_series, drive_index):
             x0=x,
             y0=drive_index[0] + DRIVE_PADDING,
             x1=x,
-            y1=drive_index[-1],
+            y1=drive_index[-1] - DRIVE_PADDING,
             line=dict(
                 color="white",
                 width=1,
@@ -92,7 +113,7 @@ def get_lines(drive_df, play_start_series, play_end_series, drive_index):
 def create_drive_chart(drive_no, game_df):
 
     drive_df = game_df.loc[game_df["drive"] == drive_no, PLAY_COLS]
-    drive_index = PLAY_HEIGHT * np.arange(len(drive_df), -1, -1) + PLAY_HEIGHT
+    drive_index = PLAY_HEIGHT * np.arange(len(drive_df), 0, -1) + PLAY_HEIGHT
 
     home_team = game_df["home_team"].iloc[0]
     away_team = game_df["away_team"].iloc[0]
@@ -103,30 +124,33 @@ def create_drive_chart(drive_no, game_df):
     play_start_series, play_starts = get_play_starts(drive_df, drive_index, home_team)
     play_end_series, play_ends = get_play_ends(drive_df, drive_index, home_team)
 
-    data = [draw_numbers(drive_index[-1] + TEXT_MARGIN), draw_numbers(drive_index[0] + DRIVE_PADDING / 2 - TEXT_MARGIN)] + fill_end_zone(
+    data = [draw_numbers(drive_index[-1] + TEXT_MARGIN - DRIVE_PADDING / 2), draw_numbers(drive_index[0] + DRIVE_PADDING / 2 - TEXT_MARGIN)] + fill_end_zone(
         home_team,
         away_team,
-        [drive_index[-1], drive_index[0] + DRIVE_PADDING / 2],
+        [drive_index[-1] - DRIVE_PADDING / 2, drive_index[0] + DRIVE_PADDING / 2],
     ) + [play_starts, play_ends]
     lines = get_lines(drive_df, play_start_series, play_end_series, drive_index)
+    arrows = get_penalty_arrows(drive_df, play_start_series, play_end_series, drive_index)
     layout = go.Layout(
         autosize=False,
         width=120 * DRAW_SCALE,
         height=max(6, len(drive_index)) * PLAY_HEIGHT * DRAW_SCALE,
         xaxis1=dict(range=[0, 120], autorange=False, tickmode='array', tickvals=np.arange(10, 111, 5).tolist(), showticklabels=False, fixedrange=True),
-        yaxis1=dict(range=[drive_index[-1], drive_index[0] + DRIVE_PADDING / 2], showticklabels=False, showgrid=False, fixedrange=True),
+        yaxis1=dict(range=[drive_index[-1] - DRIVE_PADDING / 2, drive_index[0] + DRIVE_PADDING / 2], showticklabels=False, showgrid=False, fixedrange=True),
         plot_bgcolor=FIELD_COLOR,
         shapes=lines,
+        annotations=arrows,
         showlegend=False,
         hoverlabel=dict(
             bgcolor="white",
             font_size=14,
             font_family="Helvetica",
             font_color="black",
+            align="left",
         )
     )
     fig = go.Figure(data, layout=layout)
-    add_end_zone_text(fig, home_team, away_team, max((drive_index[0] + drive_index[-1] + DRIVE_PADDING * 0.75) / 2, 2 * PLAY_HEIGHT))
+    add_end_zone_text(fig, home_team, away_team, max((drive_index[0] + drive_index[-1]) / 2, 2 * PLAY_HEIGHT))
     fig.update_traces(
         marker=dict(
             size=12,

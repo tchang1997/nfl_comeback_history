@@ -31,18 +31,22 @@ def get_tooltip_text(drive_df):
         start = row["yrdln"]
         end = row["end_yard_line"]
 
+        posteam_type = row["posteam_type"]
+        home_team = row["posteam"] if posteam_type == "home" else row["defteam"]
+        away_team = row["posteam"] if posteam_type != "home" else row["defteam"]
+        total_home_score = row["total_home_score"]
+        total_away_score = row["total_away_score"]
+
         qtr = row["qtr"]
         start_time = row["time"]
         end_time = row["end_clock_time"]
         gain = row["yards_gained"]
-        posteam_type = row["posteam_type"]
         play_type = row["play_type"]
 
-        if play_type == "no_play":
-            return f"<b>(Q{qtr} {start_time}) {start}</b><br>{play_desc}"
+        base_str = f"(Q{qtr} {start_time}, {home_team} {total_home_score} - {away_team} {total_away_score})"
 
-        home_team = row["posteam"] if posteam_type == "home" else row["defteam"]
-        away_team = row["posteam"] if posteam_type != "home" else row["defteam"]
+        if play_type == "no_play":
+            return f"<b>{start}</b><br>{play_desc}"
 
         if pd.notnull(gain):
             gain_str = f"{int(gain):+}"
@@ -56,9 +60,9 @@ def get_tooltip_text(drive_df):
                     away_team)
         else:
             gain_str = "N/A"
-            return f"<b>(Q{qtr} {start_time}) {start}<br>{play_desc}"
+            return f"<b>{base_str} {start}<br>{play_desc}"
 
-        return f"<b>(Q{qtr} {start_time}) {start}  ➤ {end} [{gain_str} yds]</b><br>Play selection: {play_type}<br>{play_desc}"
+        return f"<b>{base_str} {start}  ➤ {end} [{gain_str} yds]</b><br>Play selection: {play_type}<br>{play_desc}"
 
     return drive_df.apply(get_tooltip_for_play, axis=1)
 
